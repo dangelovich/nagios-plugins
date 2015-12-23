@@ -10,30 +10,69 @@ import requests
 import re
 import sys
 import argparse
+import pprint
+
+def debugprint(debugobject, debugstring):
+    """
+    Print debug information if running in debug mode
+    """
+    if CMDLINEARGS.debug:
+        print "===== " + debugstring + " ====="
+        pprint.pprint(debugobject)
+        print "===== " + debugstring + " ====="
+        print ""
 
 def converttable(tablecode):
     """
     Function to convert supplied HTML table code into JSON (via XML)
     """
     table = etree.XML(tablecode)
-    #print (etree.tostring(table, pretty_print=True))
     rows = iter(table)
     headers = [col.text for col in next(rows)]
     data = []
     for row in rows:
         values = [col.text for col in row]
-        #print dict(zip(headers, values))
+        debugprint(dict(zip(headers, values)), "RAW JSON")
         data.append(dict(zip(headers, values)))
     return data
 
+# Nagios return codes
+NAGIOSOK = 0
+NAGIOSWARNING = 1
+NAGIOSCRITICAL = 2
+NAGIOSUNKNOWN = 3
 
-ARGPARSER = argparse.ArgumentParser(description='Check diagnostic data on Thomson Cable Modem DCM476.')
-ARGPARSER.add_argument('-H', '--host', action='store', nargs=1, help="Specify the host to query")
-ARGPARSER.add_argument('-f', '--forwardpath', action='store_true', help="Return only forward path diagnostic data")
-ARGPARSER.add_argument('-r', '--returnpath', action='store_true', help="Return only return path diagnostic data")
-ARGPARSER.add_argument('-a', '--all', action='store_true', help="Return all path diagnostic data (default)")
-ARGPARSER.add_argument('-c', '--critical', action='store_true', help="If data retrieval fails, return critical")
-ARGPARSER.add_argument('-w', '--warning', action='store_true', help="If data retrieval fails, return warning")
+ARGPARSER = argparse.ArgumentParser(description='Check diagnostic data on' + \
+                                                ' Thomson Cable Modem DCM476.')
+ARGPARSER.add_argument('-H',
+                       '--host',
+                       action='store',
+                       nargs=1,
+                       help="Specify the host to query")
+ARGPARSER.add_argument('-f',
+                       '--forwardpath',
+                       action='store_true',
+                       help="Return only forward path diagnostic data")
+ARGPARSER.add_argument('-r',
+                       '--returnpath',
+                       action='store_true',
+                       help="Return only return path diagnostic data")
+ARGPARSER.add_argument('-a',
+                       '--all',
+                       action='store_true',
+                       help="Return all path diagnostic data (default)")
+ARGPARSER.add_argument('-c',
+                       '--critical',
+                       action='store_true',
+                       help="If data retrieval fails, return critical")
+ARGPARSER.add_argument('-w',
+                       '--warning',
+                       action='store_true',
+                       help="If data retrieval fails, return warning")
+ARGPARSER.add_argument('-d',
+                       '--debug',
+                       action='store_true',
+                       help="Enable debug mode")
 CMDLINEARGS = ARGPARSER.parse_args()
 
 if not CMDLINEARGS.host:
@@ -41,14 +80,12 @@ if not CMDLINEARGS.host:
     ARGPARSER.print_help()
     sys.exit(1)
 
-#MODEM_URL = 'http://192.168.100.1/Diagnostics.asp'
 MODEM_URL = 'http://' + CMDLINEARGS.host[0] + '/Diagnostics.asp'
-#MODEM_URL = 'http://localhost/Diagnostics.asp'
 
 if CMDLINEARGS.critical or (CMDLINEARGS.critical and CMDLINEARGS.warning):
-    RETURNCODE = 2
+    RETURNCODE = NAGIOSCRITICAL
 else:
-    RETURNCODE = 1
+    RETURNCODE = NAGIOSWARNING
 
 try:
     DIAGNOSTICS_REQUEST = requests.get(MODEM_URL, verify=False)
@@ -61,35 +98,39 @@ if DIAGNOSTICS_REQUEST.status_code != 200:
     sys.exit(RETURNCODE)
 
 DIAGNOSTICS = DIAGNOSTICS_REQUEST.text
+debugprint(DIAGNOSTICS, "DIAGNOSTICS")
 
 # Extract the Forward Path table
-FORWARDPATH = re.sub(r"^.*?Forward Path.*?(<table.*?</table>).*$", r"\1", DIAGNOSTICS, 0, re.M|re.S)
-RETURNPATH = re.sub(r"^.*?Return Path.*?(<table.*?</table>).*$", r"\1", DIAGNOSTICS, 0, re.M|re.S)
-
-#print "===="
-#print FORWARDPATH
-#print "===="
+FORWARDPATH = re.sub(r"^.*?Forward Path.*?(<table.*?</table>).*$", r"\1",
+                     DIAGNOSTICS, 0, re.M|re.S)
+debugprint(FORWARDPATH, "FORWARDPATH")
+RETURNPATH = re.sub(r"^.*?Return Path.*?(<table.*?</table>).*$", r"\1",
+                    DIAGNOSTICS, 0, re.M|re.S)
+debugprint(RETURNPATH, "RETURNPATH")
 
 # Clean up the table so we can process it as XML
 FORWARDPATH = re.sub("(<table) (.*?)(>)", r"\1\3", FORWARDPATH)
+debugprint(FORWARDPATH, "FORWARDPATH table tag")
 FORWARDPATH = re.sub("(<td) (.*?)(>)", r"\1\3", FORWARDPATH)
+debugprint(FORWARDPATH, "FORWARDPATH td tag")
 FORWARDPATH = re.sub("<b>(.*?)</b>", r"\1", FORWARDPATH)
+debugprint(FORWARDPATH, "FORWARDPATH b tag")
 
 # Clean up the table so we can process it as XML
 RETURNPATH = re.sub("(<table) (.*?)(>)", r"\1\3", RETURNPATH)
+debugprint(RETURNPATH, "RETURNPATH table tag")
 RETURNPATH = re.sub("(<td) (.*?)(>)", r"\1\3", RETURNPATH)
+debugprint(RETURNPATH, "RETURNPATH td tag")
 RETURNPATH = re.sub("<b>(.*?)</b>", r"\1", RETURNPATH)
-
-#print "===="
-#print FORWARDPATH
-#print "===="
+debugprint(RETURNPATH, "RETURNPATH b tag")
 
 FORWARDJSON = converttable(FORWARDPATH)
 RETURNJSON = converttable(RETURNPATH)
 PERFDATA = ""
 RETURNDATA = ""
 
-if (CMDLINEARGS.forwardpath or CMDLINEARGS.all) or (not CMDLINEARGS.returnpath and not CMDLINEARGS.all):
+if (CMDLINEARGS.forwardpath or CMDLINEARGS.all) or \
+   (not CMDLINEARGS.returnpath and not CMDLINEARGS.all):
     THISFPERFDATA = ""
     for fchannels in FORWARDJSON:
         thisfchannel = fchannels["Channel"]
@@ -98,14 +139,19 @@ if (CMDLINEARGS.forwardpath or CMDLINEARGS.all) or (not CMDLINEARGS.returnpath a
                 if key != "Modulation":
                     # Remove the suffix unless its a %
                     numericvalue = re.sub("^(.*?) (%*).*$", r"\1\2", value)
-                    THISFPERFDATA = '\'FCh ' + thisfchannel + ' ' + key + '\'=' + numericvalue
-                    thisreturndata = 'FWD Channel ' + thisfchannel + ' ' + key + '=' + value + '\n'
-                    #print THISFPERFDATA
-                    #print thisreturndata
+                    THISFPERFDATA = '\'FCh ' + thisfchannel + ' ' + key + \
+                                    '\'=' + numericvalue
+                    thisreturndata = 'FWD Channel ' + thisfchannel + ' ' + \
+                                     key + '=' + value + '\n'
+                    debugprint(THISFPERFDATA, "THISFPERFDATA")
+                    debugprint(thisreturndata, "thisreturndata")
                     PERFDATA = PERFDATA + THISFPERFDATA + ' '
                     RETURNDATA = RETURNDATA + thisreturndata
+        debugprint(PERFDATA, "PERFDATA")
+        debugprint(RETURNDATA, "RETURNDATA")
 
-if (CMDLINEARGS.returnpath or CMDLINEARGS.all) or (not CMDLINEARGS.forwardpath and not CMDLINEARGS.all):
+if (CMDLINEARGS.returnpath or CMDLINEARGS.all) or \
+   (not CMDLINEARGS.forwardpath and not CMDLINEARGS.all):
     THISRPERFDATA = ""
     for rchannels in RETURNJSON:
         thisrchannel = rchannels["Channel ID"]
@@ -113,12 +159,16 @@ if (CMDLINEARGS.returnpath or CMDLINEARGS.all) or (not CMDLINEARGS.forwardpath a
             if key != "Channel ID":
                 if key != "Modulation":
                     numericvalue = re.sub("^(.*?) (%*).*$", r"\1\2", value)
-                    THISRPERFDATA = '\'RCh ' + thisrchannel + ' ' + key + '\'=' + numericvalue
-                    thisreturndata = 'RET Channel ' + thisrchannel + ' ' + key + '=' + value + '\n'
-                    #print THISRPERFDATA
-                    #print thisreturndata
+                    THISRPERFDATA = '\'RCh ' + thisrchannel + ' ' + key + \
+                                    '\'=' + numericvalue
+                    thisreturndata = 'RET Channel ' + thisrchannel + ' ' + \
+                                     key + '=' + value + '\n'
+                    debugprint(THISRPERFDATA, "THISRPERFDATA")
+                    debugprint(thisreturndata, "thisreturndata")
                     PERFDATA = PERFDATA + THISRPERFDATA + ' '
                     RETURNDATA = RETURNDATA + thisreturndata
+        debugprint(PERFDATA, "PERFDATA")
+        debugprint(RETURNDATA, "RETURNDATA")
 
 # Output the Nagios string
 print RETURNDATA + '|' + PERFDATA
