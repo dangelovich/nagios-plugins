@@ -1,6 +1,6 @@
 This is where I put any Nagios plugins I've written/modified.
 
-Created by: David Angelovich <dangelovich@maxpowerindustries.com>
+Created by: David Angelovich
 Website: http://maxpowerindustries.com
 
 Permission to use, copy, modify, and distribute this software for any
